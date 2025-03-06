@@ -1,0 +1,16 @@
+﻿version: '3.8'  # Specify the Docker Compose version
+
+services:
+  frontend:
+    build:
+      context: ./frontend  # Path to the frontend folder containing the Dockerfile
+    ports:
+      - "3000:80"  # Map port 80 in the container to port 3000 on the host
+    volumes:
+      - ./frontend:/app  # Mount the frontend folder to /app inside the container
+    environment:
+      NODE_ENV: production  # Set environment variable
+
+networks:
+  default:
+    driver: bridge
