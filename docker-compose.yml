@@ -20,6 +20,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -31,6 +36,11 @@ services:
       - "1433:1433"
     volumes:
       - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your_password123 -Q SELECT 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
 
   mailcleaner:
     build:
@@ -40,7 +50,8 @@ services:
       - ./backend/MailCleaner/emails:/app/emails
       - ./backend/MailCleaner/processed:/app/processed
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
@@ -50,9 +61,12 @@ services:
       context: ./backend/Indexer
     container_name: indexer
     depends_on:
-      - rabbitmq
-      - mssql
-      - mailcleaner
+      rabbitmq:
+        condition: service_healthy
+      mssql:
+        condition: service_started
+      mailcleaner:
+        condition: service_started
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
@@ -60,7 +74,6 @@ services:
       SQL_PORT: "1433"
       SQL_USER: sa
       SQL_PASSWORD: "Your_password123"
-
 
 networks:
   default:
