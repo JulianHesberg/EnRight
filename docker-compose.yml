@@ -1,26 +1,70 @@
-﻿version: '3.8'  # Specify the Docker Compose version
+﻿version: '3.8'
 
 services:
   frontend:
     build:
-      context: ./frontend  # Path to the frontend folder containing the Dockerfile
+      context: ./frontend
     ports:
-      - "3000:80"  # Map port 80 in the container to port 3000 on the host
+      - "3000:80"
     volumes:
-      - ./frontend:/app  # Mount the frontend folder to /app inside the container
+      - ./frontend:/app
     environment:
-      NODE_ENV: production  # Set environment variable
+      NODE_ENV: production
 
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"    # RabbitMQ AMQP port
-      - "15672:15672"  # RabbitMQ Management UI port
+      - "5672:5672"      # AMQP
+      - "15672:15672"    # Management UI
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
 
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "Your_password123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+
+  mailcleaner:
+    build:
+      context: ./backend/MailCleaner
+    container_name: mailcleaner
+    volumes:
+      - ./backend/MailCleaner/emails:/app/emails
+      - ./backend/MailCleaner/processed:/app/processed
+    depends_on:
+      - rabbitmq
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+
+  indexer:
+    build:
+      context: ./backend/Indexer
+    container_name: indexer
+    depends_on:
+      - rabbitmq
+      - mssql
+      - mailcleaner
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      SQL_HOST: mssql
+      SQL_PORT: "1433"
+      SQL_USER: sa
+      SQL_PASSWORD: "Your_password123"
+
+
 networks:
   default:
     driver: bridge
+
+volumes:
+  mssql_data:
