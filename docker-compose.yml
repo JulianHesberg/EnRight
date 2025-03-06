@@ -11,6 +11,16 @@ services:
     environment:
       NODE_ENV: production  # Set environment variable
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"    # RabbitMQ AMQP port
+      - "15672:15672"  # RabbitMQ Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
 networks:
   default:
     driver: bridge
