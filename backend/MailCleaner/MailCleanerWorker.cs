@@ -19,11 +19,14 @@ public class MailCleanerWorker : BackgroundService
 
     public MailCleanerWorker()
     {
+
+        var hostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq";
+        var port = Environment.GetEnvironmentVariable("RABBITMQ_PORT") ?? "5672";
         // Configure RabbitMQ client
         _factory = new ConnectionFactory
         {
-            HostName = "localhost",
-            Port = 5672,
+            HostName = hostName,
+            Port = int.Parse(port),
             UserName = "guest",
             Password = "guest"
         };
@@ -34,7 +37,7 @@ public class MailCleanerWorker : BackgroundService
     {
         // Create asynchronous connection & channel
         _connection = await _factory.CreateConnectionAsync();
-        _channel    = await _connection.CreateChannelAsync();
+        _channel = await _connection.CreateChannelAsync();
 
         // Declare the queue where we'll publish cleaned emails
         await _channel.QueueDeclareAsync(
@@ -67,7 +70,7 @@ public class MailCleanerWorker : BackgroundService
                 {
                     // Read raw email content
                     string rawContent = await File.ReadAllTextAsync(file, stoppingToken);
-                    
+
                     // Clean out headers
                     string cleanedContent = CleanEmail(rawContent);
 
@@ -129,7 +132,7 @@ public class MailCleanerWorker : BackgroundService
             body: body
         );
 
-        Console.WriteLine(" [x] Sent cleaned email to queue");
+        Console.WriteLine(" ************************* [x] Sent cleaned email to queue ************************* ");
     }
 
     // Called when the Worker stops
