@@ -14,16 +14,16 @@ public class IndexerContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Map classes to tables (optional if you want custom names)
+        // Map classes to tables in the database
         modelBuilder.Entity<Words>().ToTable("Words");
         modelBuilder.Entity<FileRecord>().ToTable("Files");
         modelBuilder.Entity<Occurrence>().ToTable("Occurrences");
 
-        // Composite primary key for Occurrence
+        // Primary key for Occurrence
         modelBuilder.Entity<Occurrence>()
             .HasKey(o => new { o.WordId, o.FileId });
 
-        // Relationship: Occurrence -> Word
+        // Relationship: Occurrence -> Words
         modelBuilder.Entity<Occurrence>()
             .HasOne(o => o.Word)
             .WithMany(w => w.Occurrences)
@@ -35,7 +35,7 @@ public class IndexerContext : DbContext
             .WithMany(f => f.Occurrences)
             .HasForeignKey(o => o.FileId);
 
-        // (Optional) Make WordValue unique
+        // Make WordValue unique
         modelBuilder.Entity<Words>()
             .HasIndex(w => w.Word)
             .IsUnique();
