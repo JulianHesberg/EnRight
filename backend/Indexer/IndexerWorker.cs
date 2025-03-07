@@ -31,7 +31,7 @@ public class IndexWorker : BackgroundService
             Password = "guest"
         };
 
-        // Create async connection and channel (RabbitMQ.Client v7+)
+        // Create async connection and channel
         _connection = await factory.CreateConnectionAsync();
         _channel = await _connection.CreateChannelAsync();
 
@@ -69,12 +69,10 @@ public class IndexWorker : BackgroundService
             catch (Exception ex)
             {
                 Console.WriteLine($"Error indexing message: {ex.Message}");
-                // Optionally NACK or requeue:
-                // await _channel.BasicNackAsync(ea.DeliveryTag, false, true);
             }
         };
 
-        // Listen on the queue with manual acknowledgments (autoAck = false)
+        // Listen on the queue with manual acknowledgments
         _channel.BasicConsumeAsync(
             queue: "cleaned_emails",
             autoAck: false,
@@ -91,7 +89,7 @@ public class IndexWorker : BackgroundService
         using var scope = _serviceProvider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<IndexerContext>();
 
-        // 1. Insert a file record (or 'Email' record) to store the content
+        // 1. Insert a file record to store the content
         var fileRecord = new FileRecord
         {
             FileName = Guid.NewGuid().ToString() + ".txt", 

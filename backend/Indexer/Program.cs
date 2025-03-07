@@ -20,7 +20,7 @@ public class Program
         Host.CreateDefaultBuilder(args)
             .ConfigureServices((hostContext, services) =>
             {
-                // Read environment variables (set in docker-compose.yml or fallback defaults)
+                // Read environment variables
                 var sqlHost = Environment.GetEnvironmentVariable("SQL_HOST") ?? "mssql";
                 var sqlPort = Environment.GetEnvironmentVariable("SQL_PORT") ?? "1433";
                 var sqlUser = Environment.GetEnvironmentVariable("SQL_USER") ?? "sa";
