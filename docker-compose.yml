@@ -47,7 +47,7 @@ services:
       context: ./backend/MailCleaner
     container_name: mailcleaner
     volumes:
-      - ./backend/MailCleaner/emails:/app/emails
+      - ./backend/MailCleaner/maildir:/app/maildir
       - ./backend/MailCleaner/processed:/app/processed
     depends_on:
       rabbitmq:
