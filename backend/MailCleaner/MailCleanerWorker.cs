@@ -58,7 +58,7 @@ public class MailCleanerWorker : BackgroundService
         await base.StartAsync(cancellationToken);
     }
 
-    
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -90,7 +90,10 @@ public class MailCleanerWorker : BackgroundService
 
                         string newFileName = $"{name}_{type}_{Path.GetFileName(emailFile)}";
                         string newFilePath = Path.Combine(typeProcessedDir, Path.GetFileName(emailFile));
-                        File.WriteAllBytes(newFilePath, fileData);
+
+                        Directory.CreateDirectory(typeProcessedDir);
+                        File.Move(emailFile, newFilePath);
+                        
                         var body = new CleanedEmail();
                         body.FileName = newFileName;
                         body.Content = cleanedData;
