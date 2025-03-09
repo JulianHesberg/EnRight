@@ -3,8 +3,10 @@ using RabbitMQ.Client;
 using System;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using MailCleaner.Models;
 
 public class MailCleanerWorker : BackgroundService
 {
@@ -14,7 +16,7 @@ public class MailCleanerWorker : BackgroundService
     private IChannel? _channel;
 
     // Directories for raw & processed emails
-    private readonly string _emailDirectory = "emails";
+    private readonly string _emailDirectory = "maildir";
     private readonly string _processedDirectory = "processed";
 
     public MailCleanerWorker()
@@ -56,75 +58,101 @@ public class MailCleanerWorker : BackgroundService
         await base.StartAsync(cancellationToken);
     }
 
-    // Main worker loop
+    
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            // Find all .txt files in "emails" folder
-            var files = Directory.GetFiles(_emailDirectory, "*.txt");
+            ProcessMailDirectory(_emailDirectory, _processedDirectory);
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+        }
+    }
+    private async void ProcessMailDirectory(string mailDir, string processedDir)
+    {
+        foreach (var nameDir in Directory.GetDirectories(mailDir))
+        {
+            string name = Path.GetFileName(nameDir);
+            string nameProcessedDir = Path.Combine(processedDir, name);
 
-            foreach (var file in files)
+            foreach (var typeDir in Directory.GetDirectories(nameDir))
             {
-                try
+                string type = Path.GetFileName(typeDir);
+                string typeProcessedDir = Path.Combine(nameProcessedDir, type);
+
+                Directory.CreateDirectory(typeProcessedDir);
+
+                foreach (var emailFile in Directory.GetFiles(typeDir))
                 {
-                    // Read raw email content
-                    string rawContent = await File.ReadAllTextAsync(file, stoppingToken);
+                    try
+                    {
+                        byte[] fileData = File.ReadAllBytes(emailFile);
+                        string cleanedData = CleanEmail(fileData);
 
-                    // Clean out headers
-                    string cleanedContent = CleanEmail(rawContent);
+                        string newFileName = $"{name}_{type}_{Path.GetFileName(emailFile)}";
+                        string newFilePath = Path.Combine(typeProcessedDir, Path.GetFileName(emailFile));
+                        File.WriteAllBytes(newFilePath, fileData);
+                        var body = new CleanedEmail();
+                        body.FileName = newFileName;
+                        body.Content = cleanedData;
+                        body.Data = fileData;
 
-                    // Publish cleaned email content to RabbitMQ
-                    await PublishMessageAsync(cleanedContent, stoppingToken);
+                        await PublishMessageAsync(body);
 
-                    // Move the file to "processed" folder
-                    string destFile = Path.Combine(_processedDirectory, Path.GetFileName(file));
-                    File.Move(file, destFile);
-
-                    Console.WriteLine($"Processed: {file}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error processing {file}: {ex.Message}");
+                        Console.WriteLine($"Processed: {emailFile}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error processing {emailFile}: {ex.Message}");
+                    }
                 }
             }
-
-            // Wait 5 seconds before checking for new files
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         }
     }
 
     // TODO (Temp implementation for cleaning) refactor to match our own needs.
-    private string CleanEmail(string rawContent)
+    private string CleanEmail(byte[] rawContent)
     {
-        var lines = rawContent.Split('\n');
+        // Convert byte array to string using UTF-8 encoding
+        string emailContent = Encoding.UTF8.GetString(rawContent);
+
+        // Split the email content into lines
+        var lines = emailContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
         var sb = new StringBuilder();
         bool isBody = false;
 
+        // Loop through each line and remove headers
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))
             {
+                // An empty line indicates the end of headers and the start of the body
                 isBody = true;
                 continue;
             }
             if (isBody)
             {
-                sb.AppendLine(line.TrimEnd('\r'));
+                // Append the line to the StringBuilder if it is part of the body
+                sb.AppendLine(line);
             }
         }
 
+        // Return the cleaned email content as a string
         return sb.ToString().Trim();
     }
 
     // Publish cleaned email text to RabbitMQ
-    private async Task PublishMessageAsync(string message, CancellationToken ct)
+    private async Task PublishMessageAsync(CleanedEmail data)
     {
         if (_channel == null)
             throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
-        var body = Encoding.UTF8.GetBytes(message);
+        // Serialize the CleanedEmail object to JSON
+        var json = JsonSerializer.Serialize(data);
 
+        // Convert the JSON string to a byte array
+        var body = Encoding.UTF8.GetBytes(json);
+
+        // Publish the JSON data to RabbitMQ
         await _channel.BasicPublishAsync(
             exchange: "",
             routingKey: "cleaned_emails",
