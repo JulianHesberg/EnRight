@@ -1,5 +1,7 @@
 
 using System.Text;
+using System.Text.Json;
+using Indexer.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -50,7 +52,7 @@ public class IndexWorker : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Use AsyncEventingBasicConsumer for async message handling
+        // Use EventingBasicConsumer for message handling
         var consumer = new AsyncEventingBasicConsumer(_channel);
 
         consumer.ReceivedAsync += async (sender, ea) =>
@@ -60,11 +62,17 @@ public class IndexWorker : BackgroundService
                 var body = ea.Body.ToArray();
                 var message = Encoding.UTF8.GetString(body);
 
-                // Index the email content in the database
-                await IndexEmailAsync(message);
+                // Deserialize the CleanedEmail object from JSON
+                var cleanedEmail = JsonSerializer.Deserialize<CleanedEmail>(message);
+
+                if (cleanedEmail != null)
+                {
+                    // Index the email content in the database
+                    await IndexEmailAsync(cleanedEmail);
+                }
 
                 // Manually acknowledge the message
-                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+                _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
             }
             catch (Exception ex)
             {
@@ -83,7 +91,7 @@ public class IndexWorker : BackgroundService
         return Task.CompletedTask;
     }
 
-    private async Task IndexEmailAsync(string content)
+     private async Task IndexEmailAsync(CleanedEmail cleanedEmail)
     {
         // Create a scope to resolve the DbContext via DI
         using var scope = _serviceProvider.CreateAsyncScope();
@@ -92,14 +100,14 @@ public class IndexWorker : BackgroundService
         // 1. Insert a file record to store the content
         var fileRecord = new FileRecord
         {
-            FileName = Guid.NewGuid().ToString() + ".txt", 
-            Content = Encoding.UTF8.GetBytes(content)
+            FileName = cleanedEmail.FileName,
+            Content = cleanedEmail.Data,
         };
         db.Files.Add(fileRecord);
         await db.SaveChangesAsync();
 
         // 2. Split the message content into words
-        var tokens = content.Split(
+        var tokens = cleanedEmail.Content.Split(
             new[] { ' ', '\r', '\n', '\t', ',', '.', ';', ':', '!', '?', '\"', '\'' },
             StringSplitOptions.RemoveEmptyEntries
         );
