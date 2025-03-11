@@ -1,7 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Extensions.Hosting;
 public class Program
 {
     public static void Main(string[] args)
@@ -13,7 +15,6 @@ public class Program
             db.Database.EnsureCreated();
         }
         host.Run();
-        CreateHostBuilder(args).Build().Run();
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>
@@ -35,6 +36,27 @@ public class Program
                     options.UseSqlServer(connectionString));
 
                 services.AddHostedService<IndexWorker>();
+
+                services.AddOpenTelemetry()
+                    .WithTracing(builder =>
+                    {
+                        builder
+                            .SetResourceBuilder(
+                                ResourceBuilder.CreateDefault()
+                                    .AddService("IndexerService"))  // Name that appears in Zipkin
+                            // Trace API calls
+                            .AddHttpClientInstrumentation()
+                            // Trace SQL operations
+                            .AddSqlClientInstrumentation()
+
+                            // Export to Zipkin
+                            .AddZipkinExporter(o =>
+                            {
+                                // If running Zipkin in Docker Compose
+                                // 'zipkin' is the container name; port 9411
+                                o.Endpoint = new Uri("http://zipkin:9411/api/v2/spans");
+                            });
+                    });
 
             });
 }

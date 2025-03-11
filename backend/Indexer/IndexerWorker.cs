@@ -1,4 +1,5 @@
 
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Indexer.Models;
@@ -15,12 +16,15 @@ public class IndexWorker : BackgroundService
     private IConnection? _connection;
     private IChannel? _channel;  // For RabbitMQ communication
 
+    // Create an ActivitySource for the Indexer
+    private static readonly ActivitySource ActivitySource = new ActivitySource("Indexer");
+
 
     public IndexWorker(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }
- public override async Task StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         var hostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq";
         var port = Environment.GetEnvironmentVariable("RABBITMQ_PORT") ?? "5672";
@@ -52,35 +56,54 @@ public class IndexWorker : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Use EventingBasicConsumer for message handling
+        // 1. Create the AsyncEventingBasicConsumer
         var consumer = new AsyncEventingBasicConsumer(_channel);
 
+        // 2. Handle messages asynchronously
         consumer.ReceivedAsync += async (sender, ea) =>
         {
             try
             {
+                // (A) Optionally extract the traceparent here
+                // ActivityContext parentContext = default;
+                // if (ea.BasicProperties.Headers != null &&
+                //     ea.BasicProperties.Headers.TryGetValue("traceparent", out object traceParentObj))
+                // {
+                //     if (traceParentObj is byte[] traceParentBytes)
+                //     {
+                //         var traceParent = Encoding.UTF8.GetString(traceParentBytes);
+                //         parentContext = ActivityContext.Parse(traceParent, null);
+                //     }
+                // }
+
+                // // (B) Start an Activity for this consume operation
+                // using var activity = ActivitySource.StartActivity(
+                //     "RabbitMQ Consume",
+                //     ActivityKind.Consumer,
+                //     parentContext);
+
+                // (C) Process the message
                 var body = ea.Body.ToArray();
                 var message = Encoding.UTF8.GetString(body);
 
-                // Deserialize the CleanedEmail object from JSON
+                // e.g. deserialize + index
                 var cleanedEmail = JsonSerializer.Deserialize<CleanedEmail>(message);
-
                 if (cleanedEmail != null)
                 {
-                    // Index the email content in the database
                     await IndexEmailAsync(cleanedEmail);
                 }
 
-                // Manually acknowledge the message
-                _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+                // (D) Manually acknowledge
+                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error indexing message: {ex.Message}");
+                Console.WriteLine($"Error processing message: {ex.Message}");
             }
         };
 
-        // Listen on the queue with manual acknowledgments
+        // 3. Actually consume messages
+        //    Make sure the queue name matches exactly
         _channel.BasicConsumeAsync(
             queue: "cleaned_emails",
             autoAck: false,
@@ -91,7 +114,8 @@ public class IndexWorker : BackgroundService
         return Task.CompletedTask;
     }
 
-     private async Task IndexEmailAsync(CleanedEmail cleanedEmail)
+
+    private async Task IndexEmailAsync(CleanedEmail cleanedEmail)
     {
         // Create a scope to resolve the DbContext via DI
         using var scope = _serviceProvider.CreateAsyncScope();
@@ -150,7 +174,7 @@ public class IndexWorker : BackgroundService
         Console.WriteLine($"Indexed file {fileRecord.FileId} with {wordCounts.Count} unique words.");
     }
 
-        public override async Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         if (_channel != null)
         {
