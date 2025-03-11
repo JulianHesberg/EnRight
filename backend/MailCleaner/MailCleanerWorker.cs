@@ -1,12 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using RabbitMQ.Client;
-using System;
-using System.IO;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using MailCleaner.Models;
+using System.Diagnostics;
 
 public class MailCleanerWorker : BackgroundService
 {
@@ -14,6 +11,8 @@ public class MailCleanerWorker : BackgroundService
     private readonly ConnectionFactory _factory;
     private IConnection? _connection;
     private IChannel? _channel;
+
+    private static readonly ActivitySource ActivitySource = new("MailCleaner");
 
     // Directories for raw & processed emails
     private readonly string _emailDirectory = "maildir";
@@ -93,7 +92,7 @@ public class MailCleanerWorker : BackgroundService
 
                         Directory.CreateDirectory(typeProcessedDir);
                         File.Move(emailFile, newFilePath);
-                        
+
                         var body = new CleanedEmail();
                         body.FileName = newFileName;
                         body.Content = cleanedData;
@@ -149,21 +148,33 @@ public class MailCleanerWorker : BackgroundService
         if (_channel == null)
             throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
-        // Serialize the CleanedEmail object to JSON
-        var json = JsonSerializer.Serialize(data);
+        // 1. Start an OpenTelemetry Activity for this publish operation
+        using var activity = ActivitySource.StartActivity("Publish to RabbitMQ", ActivityKind.Producer);
 
-        // Convert the JSON string to a byte array
+        // 2. Convert CleanedEmail to JSON
+        var json = JsonSerializer.Serialize(data);
         var body = Encoding.UTF8.GetBytes(json);
 
-        // Publish the JSON data to RabbitMQ
+        // 3. Create a new BasicProperties instance manually
+        var props = new BasicProperties
+        {
+            Headers = new Dictionary<string, object?>()
+        };
+
+        // 4. Inject trace context for cross-service correlation
+        var traceParent = activity?.Id ?? "";
+        props.Headers["traceparent"] = Encoding.UTF8.GetBytes(traceParent);
+
+        // 5. **Important**: Pass `props` to `BasicPublishAsync`
         await _channel.BasicPublishAsync(
             exchange: "",
             routingKey: "cleaned_emails",
             mandatory: false,
+            basicProperties: props,
             body: body
         );
 
-        Console.WriteLine(" ************************* [x] Sent cleaned email to queue ************************* ");
+        Console.WriteLine(" [x] Sent cleaned email with trace context");
     }
 
     // Called when the Worker stops

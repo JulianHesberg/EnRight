@@ -3,7 +3,7 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
-backend/MailCleaner/maildr/
+backend/MailCleaner/maildir/
 
 backend/MailCleaner/processed/
 
