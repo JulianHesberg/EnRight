@@ -6,6 +6,7 @@ using System.Text.Json;
 using MailCleaner.Models;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Prometheus;
 
 public class MailCleanerWorker : BackgroundService
 {
@@ -19,7 +20,7 @@ public class MailCleanerWorker : BackgroundService
 
     // Creating a Meter + Counter for custom metrics
     private static readonly Meter s_meter = new("MailCleanerMeter");
-    private static readonly Counter<long> s_emailsProcessed = 
+    private static readonly Counter<long> s_emailsProcessed =
         s_meter.CreateCounter<long>("emails_processed", "Number of emails processed by MailCleaner");
 
     // Directories for raw & processed emails
@@ -29,7 +30,7 @@ public class MailCleanerWorker : BackgroundService
     // Inject ILogger so we can log (Serilog or console)
     private readonly ILogger<MailCleanerWorker> _logger;
 
-    // Updated constructor to accept ILogger from DI
+    // Constructor to accept ILogger from DI
     public MailCleanerWorker(ILogger<MailCleanerWorker> logger)
     {
         _logger = logger;
@@ -67,6 +68,12 @@ public class MailCleanerWorker : BackgroundService
         Directory.CreateDirectory(_emailDirectory);
         Directory.CreateDirectory(_processedDirectory);
 
+        // Register default Prometheus metrics (optional)
+        Metrics.DefaultRegistry.AddBeforeCollectCallback(() =>
+        {
+            // Additional metrics registration if needed
+        });
+
         await base.StartAsync(cancellationToken);
     }
 
@@ -81,6 +88,9 @@ public class MailCleanerWorker : BackgroundService
 
     private async void ProcessMailDirectory(string mailDir, string processedDir)
     {
+        // 1. Start a parent activity for the entire "ProcessMailDirectory" operation
+        using var processActivity = ActivitySource.StartActivity("ProcessMailDirectory", ActivityKind.Internal);
+
         foreach (var nameDir in Directory.GetDirectories(mailDir))
         {
             string name = Path.GetFileName(nameDir);
@@ -115,9 +125,11 @@ public class MailCleanerWorker : BackgroundService
 
                         await PublishMessageAsync(body);
 
-                        // 3. Log each processed file
+                        // Log each processed file
                         _logger.LogInformation("Processed: {FilePath}", emailFile);
 
+                        // Increment custom metric
+                        _logger.LogDebug("Incrementing emails_processed metric for type: {Type}", type);
                         s_emailsProcessed.Add(1, new KeyValuePair<string, object?>("type", type));
                     }
                     catch (Exception ex)
@@ -164,7 +176,11 @@ public class MailCleanerWorker : BackgroundService
         if (_channel == null)
             throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
-        using var activity = ActivitySource.StartActivity("Publish to RabbitMQ", ActivityKind.Producer);
+        // Capture current activity as parent
+        var currentActivity = Activity.Current;
+        var parentContext = currentActivity?.Context ?? default(ActivityContext);
+
+        using var activity = ActivitySource.StartActivity("Publish to RabbitMQ", ActivityKind.Producer, parentContext);
 
         var json = JsonSerializer.Serialize(data);
         var body = Encoding.UTF8.GetBytes(json);
@@ -187,7 +203,7 @@ public class MailCleanerWorker : BackgroundService
 
         props.Headers["traceparent"] = Encoding.UTF8.GetBytes(traceParent);
 
-        // 5. **Important**: Pass `props` to `BasicPublishAsync`
+        // Pass `props` to `BasicPublishAsync`
         await _channel.BasicPublishAsync(
             exchange: "",
             routingKey: "cleaned_emails",

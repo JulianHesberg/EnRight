@@ -5,12 +5,8 @@ using Microsoft.Extensions.Hosting;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Metrics;
+using Prometheus;
 using Serilog;
-
-//
-// This entire file is your "Program.cs".
-// No separate "public class Program" needed.
-//
 
 // 1. Configure Serilog globally
 Log.Logger = new LoggerConfiguration()
@@ -34,7 +30,7 @@ try
                 // Register our MailCleanerWorker as a hosted service
                 services.AddHostedService<MailCleanerWorker>();
 
-                //  Add OpenTelemetry for Traces + Metrics
+                // Add OpenTelemetry for Traces + Metrics
                 services.AddOpenTelemetry()
                     .WithTracing(tracerBuilder =>
                     {
@@ -43,7 +39,7 @@ try
                             .SetResourceBuilder(
                                 ResourceBuilder.CreateDefault()
                                     .AddService("MailCleanerService"))
-                            // sample everything
+                            // Sample everything
                             .SetSampler(new AlwaysOnSampler())
                             .AddZipkinExporter(o =>
                             {
@@ -58,22 +54,25 @@ try
                             .AddRuntimeInstrumentation()
                             .SetResourceBuilder(
                                 ResourceBuilder.CreateDefault()
-                                    .AddService("MailCleanerService"))
-                            // Expose metrics via ASP.NET Core
-                            .AddPrometheusExporter(options =>
-                            {
-
-                            });
+                                    .AddService("MailCleanerService"));
                     });
+
+                services.AddMetricServer(options =>
+                {
+                    
+                });
             });
 
-            
             webBuilder.Configure(app =>
             {
                 app.UseRouting();
+
+                // Register Prometheus metrics middleware
+                app.UseMetricServer();
+
                 app.UseEndpoints(endpoints =>
                 {
-                    
+                    endpoints.MapMetrics(); // Expose the /metrics endpoint
                 });
             });
         })
