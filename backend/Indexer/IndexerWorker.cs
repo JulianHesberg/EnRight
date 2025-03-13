@@ -56,54 +56,70 @@ public class IndexWorker : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // 1. Create the AsyncEventingBasicConsumer
         var consumer = new AsyncEventingBasicConsumer(_channel);
 
-        // 2. Handle messages asynchronously
         consumer.ReceivedAsync += async (sender, ea) =>
         {
             try
             {
-                // (A) Optionally extract the traceparent here
-                // ActivityContext parentContext = default;
-                // if (ea.BasicProperties.Headers != null &&
-                //     ea.BasicProperties.Headers.TryGetValue("traceparent", out object traceParentObj))
-                // {
-                //     if (traceParentObj is byte[] traceParentBytes)
-                //     {
-                //         var traceParent = Encoding.UTF8.GetString(traceParentBytes);
-                //         parentContext = ActivityContext.Parse(traceParent, null);
-                //     }
-                // }
+                ActivityContext parentContext = default;
 
-                // // (B) Start an Activity for this consume operation
-                // using var activity = ActivitySource.StartActivity(
-                //     "RabbitMQ Consume",
-                //     ActivityKind.Consumer,
-                //     parentContext);
+                // Safely extract 'traceparent'
+                if (ea.BasicProperties.Headers != null &&
+                    ea.BasicProperties.Headers.TryGetValue("traceparent", out object traceParentObj))
+                {
+                    if (traceParentObj is byte[] traceParentBytes)
+                    {
+                        var traceParent = Encoding.UTF8.GetString(traceParentBytes);
 
-                // (C) Process the message
+                        // Only parse if it's not empty
+                        if (!string.IsNullOrEmpty(traceParent))
+                        {
+                            try
+                            {
+                                parentContext = ActivityContext.Parse(traceParent, null);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                Console.WriteLine($"Failed to parse traceparent '{traceParent}': {parseEx}");
+                                parentContext = default; // fallback
+                            }
+                        }
+                        else
+                        {
+                            // If traceParent is empty, just log or ignore
+                            Console.WriteLine("traceparent header was empty. Using default context.");
+                            parentContext = default;
+                        }
+                    }
+                }
+
+                // Start an Activity referencing the parent context
+                using var activity = ActivitySource.StartActivity(
+                    "RabbitMQ Consume",
+                    ActivityKind.Consumer,
+                    parentContext);
+
+                // Process the message
                 var body = ea.Body.ToArray();
                 var message = Encoding.UTF8.GetString(body);
-
-                // e.g. deserialize + index
                 var cleanedEmail = JsonSerializer.Deserialize<CleanedEmail>(message);
+
                 if (cleanedEmail != null)
                 {
                     await IndexEmailAsync(cleanedEmail);
                 }
 
-                // (D) Manually acknowledge
+                // Manually acknowledge
                 await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error processing message: {ex.Message}");
+                // Log or handle any unexpected exceptions
+                Console.WriteLine($"Error processing message: {ex}");
             }
         };
 
-        // 3. Actually consume messages
-        //    Make sure the queue name matches exactly
         _channel.BasicConsumeAsync(
             queue: "cleaned_emails",
             autoAck: false,

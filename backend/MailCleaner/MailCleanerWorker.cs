@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
 using MailCleaner.Models;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 
 public class MailCleanerWorker : BackgroundService
 {
@@ -12,14 +14,25 @@ public class MailCleanerWorker : BackgroundService
     private IConnection? _connection;
     private IChannel? _channel;
 
+    // ActivitySource for Traces
     private static readonly ActivitySource ActivitySource = new("MailCleaner");
+
+    // Creating a Meter + Counter for custom metrics
+    private static readonly Meter s_meter = new("MailCleanerMeter");
+    private static readonly Counter<long> s_emailsProcessed = 
+        s_meter.CreateCounter<long>("emails_processed", "Number of emails processed by MailCleaner");
 
     // Directories for raw & processed emails
     private readonly string _emailDirectory = "maildir";
     private readonly string _processedDirectory = "processed";
 
-    public MailCleanerWorker()
+    // Inject ILogger so we can log (Serilog or console)
+    private readonly ILogger<MailCleanerWorker> _logger;
+
+    // Updated constructor to accept ILogger from DI
+    public MailCleanerWorker(ILogger<MailCleanerWorker> logger)
     {
+        _logger = logger;
 
         var hostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq";
         var port = Environment.GetEnvironmentVariable("RABBITMQ_PORT") ?? "5672";
@@ -57,7 +70,6 @@ public class MailCleanerWorker : BackgroundService
         await base.StartAsync(cancellationToken);
     }
 
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -66,6 +78,7 @@ public class MailCleanerWorker : BackgroundService
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         }
     }
+
     private async void ProcessMailDirectory(string mailDir, string processedDir)
     {
         foreach (var nameDir in Directory.GetDirectories(mailDir))
@@ -93,18 +106,23 @@ public class MailCleanerWorker : BackgroundService
                         Directory.CreateDirectory(typeProcessedDir);
                         File.Move(emailFile, newFilePath);
 
-                        var body = new CleanedEmail();
-                        body.FileName = newFileName;
-                        body.Content = cleanedData;
-                        body.Data = fileData;
+                        var body = new CleanedEmail
+                        {
+                            FileName = newFileName,
+                            Content = cleanedData,
+                            Data = fileData
+                        };
 
                         await PublishMessageAsync(body);
 
-                        Console.WriteLine($"Processed: {emailFile}");
+                        // 3. Log each processed file
+                        _logger.LogInformation("Processed: {FilePath}", emailFile);
+
+                        s_emailsProcessed.Add(1, new KeyValuePair<string, object?>("type", type));
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error processing {emailFile}: {ex.Message}");
+                        _logger.LogError(ex, "Error processing {FilePath}", emailFile);
                     }
                 }
             }
@@ -133,12 +151,10 @@ public class MailCleanerWorker : BackgroundService
             }
             if (isBody)
             {
-                // Append the line to the StringBuilder if it is part of the body
                 sb.AppendLine(line);
             }
         }
 
-        // Return the cleaned email content as a string
         return sb.ToString().Trim();
     }
 
@@ -148,21 +164,27 @@ public class MailCleanerWorker : BackgroundService
         if (_channel == null)
             throw new InvalidOperationException("RabbitMQ channel is not initialized.");
 
-        // 1. Start an OpenTelemetry Activity for this publish operation
         using var activity = ActivitySource.StartActivity("Publish to RabbitMQ", ActivityKind.Producer);
 
-        // 2. Convert CleanedEmail to JSON
         var json = JsonSerializer.Serialize(data);
         var body = Encoding.UTF8.GetBytes(json);
 
-        // 3. Create a new BasicProperties instance manually
         var props = new BasicProperties
         {
             Headers = new Dictionary<string, object?>()
         };
 
-        // 4. Inject trace context for cross-service correlation
-        var traceParent = activity?.Id ?? "";
+        string traceParent;
+        if (activity == null)
+        {
+            _logger.LogWarning("MailCleaner: Activity is null (not sampled?).");
+            traceParent = string.Empty;
+        }
+        else
+        {
+            traceParent = activity.Id;
+        }
+
         props.Headers["traceparent"] = Encoding.UTF8.GetBytes(traceParent);
 
         // 5. **Important**: Pass `props` to `BasicPublishAsync`
@@ -174,7 +196,7 @@ public class MailCleanerWorker : BackgroundService
             body: body
         );
 
-        Console.WriteLine(" [x] Sent cleaned email with trace context");
+        _logger.LogInformation("[x] Sent cleaned email with trace context = '{TraceParent}'", traceParent);
     }
 
     // Called when the Worker stops

@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'mailcleaner'
+    static_configs:
+      - targets: ['mailcleaner:5000']
