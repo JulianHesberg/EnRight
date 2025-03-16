@@ -1,7 +1,14 @@
 global:
   scrape_interval: 15s
 
+# MailCleaner scrape configuration
 scrape_configs:
   - job_name: 'mailcleaner'
     static_configs:
       - targets: ['mailcleaner:8080']
+
+ # Indexer scrape configuration
+  - job_name: 'indexer'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['indexer:8080']

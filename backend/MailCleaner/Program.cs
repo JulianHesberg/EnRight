@@ -41,6 +41,7 @@ try
                                     .AddService("MailCleanerService"))
                             // Sample everything
                             .SetSampler(new AlwaysOnSampler())
+                            .AddHttpClientInstrumentation()
                             .AddZipkinExporter(o =>
                             {
                                 // Send traces to Zipkin at port 9411

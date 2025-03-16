@@ -3,60 +3,100 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using OpenTelemetry.Extensions.Hosting;
+using OpenTelemetry.Metrics;
+using Prometheus;
+using Serilog;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Builder;
+
 public class Program
 {
     public static void Main(string[] args)
     {
-        var host = CreateHostBuilder(args).Build();
-        using (var scope = host.Services.CreateScope())
+        // 1. Configure Serilog globally
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .Enrich.FromLogContext()
+            .WriteTo.Console() // Structured logging to the console
+            .CreateLogger();
+
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<IndexerContext>();
-            db.Database.EnsureCreated();
-        }
-        host.Run();
-    }
+            // 2. Build and run the host
+            Host.CreateDefaultBuilder(args)
+                .UseSerilog() // Use Serilog for logging
+                .ConfigureServices((hostContext, services) =>
+                {
+                    // Read environment variables for database configuration
+                    var sqlHost = Environment.GetEnvironmentVariable("SQL_HOST") ?? "mssql";
+                    var sqlPort = Environment.GetEnvironmentVariable("SQL_PORT") ?? "1433";
+                    var sqlUser = Environment.GetEnvironmentVariable("SQL_USER") ?? "sa";
+                    var sqlPass = Environment.GetEnvironmentVariable("SQL_PASSWORD") ?? "Your_password123";
 
-    public static IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args)
-            .ConfigureServices((hostContext, services) =>
-            {
-                // Read environment variables
-                var sqlHost = Environment.GetEnvironmentVariable("SQL_HOST") ?? "mssql";
-                var sqlPort = Environment.GetEnvironmentVariable("SQL_PORT") ?? "1433";
-                var sqlUser = Environment.GetEnvironmentVariable("SQL_USER") ?? "sa";
-                var sqlPass = Environment.GetEnvironmentVariable("SQL_PASSWORD") ?? "Your_password123";
+                    // Build a valid connection string
+                    var connectionString = 
+                        $"Server={sqlHost},{sqlPort};Database=EnronIndex;User Id={sqlUser};Password={sqlPass};TrustServerCertificate=True;";
 
-                // Build a valid connection string for Docker Compose
-                var connectionString =
-                    $"Server={sqlHost},{sqlPort};Database=EnronIndex;User Id={sqlUser};Password={sqlPass};TrustServerCertificate=True;";
+                    // Register the DbContext for EF Core
+                    services.AddDbContext<IndexerContext>(options =>
+                        options.UseSqlServer(connectionString));
 
-                // Register the DbContext with EF Core
-                services.AddDbContext<IndexerContext>(options =>
-                    options.UseSqlServer(connectionString));
+                    // Register the IndexWorker as a hosted service
+                    services.AddHostedService<IndexWorker>();
 
-                services.AddHostedService<IndexWorker>();
+                    // Add OpenTelemetry for tracing and metrics
+                    services.AddOpenTelemetry()
+                        .WithTracing(tracerBuilder =>
+                        {
+                            tracerBuilder
+                                .AddSource("Indexer") // Custom ActivitySource from IndexWorker
+                                .SetResourceBuilder(
+                                    ResourceBuilder.CreateDefault()
+                                        .AddService("IndexerService")) // Trace service name
+                                .SetSampler(new AlwaysOnSampler()) // Sample all traces
+                                .AddHttpClientInstrumentation() // Trace HttpClient calls
+                                .AddSqlClientInstrumentation() // Trace SQL queries
+                                .AddZipkinExporter(o =>
+                                {
+                                    o.Endpoint = new Uri("http://zipkin:9411/api/v2/spans"); // Zipkin exporter endpoint
+                                });
+                        })
+                        .WithMetrics(meterBuilder =>
+                        {
+                            meterBuilder
+                                .AddRuntimeInstrumentation() // Runtime metrics (GC, etc.)
+                                .SetResourceBuilder(
+                                    ResourceBuilder.CreateDefault()
+                                        .AddService("IndexerService")); // Metrics service name
+                        });
 
-                services.AddOpenTelemetry()
-                    .WithTracing(builder =>
+                    // Add Prometheus metric server
+                    services.AddMetricServer(options =>
                     {
-                        builder
-                            .SetResourceBuilder(
-                                ResourceBuilder.CreateDefault()
-                                    .AddService("IndexerService"))  // Name that appears in Zipkin
-                            // Trace API calls
-                            .AddHttpClientInstrumentation()
-                            // Trace SQL operations
-                            .AddSqlClientInstrumentation()
-
-                            // Export to Zipkin
-                            .AddZipkinExporter(o =>
-                            {
-                                // If running Zipkin in Docker Compose
-                                // 'zipkin' is the container name; port 9411
-                                o.Endpoint = new Uri("http://zipkin:9411/api/v2/spans");
-                            });
+                        options.Port = 8081; // Expose metrics on port 8081
                     });
+                })
+                .ConfigureWebHostDefaults(webBuilder =>
+                {
+                    webBuilder.Configure(app =>
+                    {
+                        app.UseRouting();
 
-            });
+                        // Register Prometheus metrics middleware
+                        app.UseMetricServer();
+
+                        app.UseEndpoints(endpoints =>
+                        {
+                            endpoints.MapMetrics(); // Expose metrics endpoint for Prometheus
+                        });
+                    });
+                })
+                .Build()
+                .Run();
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
+    }
 }
