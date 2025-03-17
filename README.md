@@ -32,7 +32,7 @@ http://localhost:3030/
 
 - Example:
 - ./maildir/.allen_p/.sent_emails./{FileName}.
-                   Optional ^
+-                    Optional ^
 - You just need to make sure at least one subdirectoy is added inside maildir.
 
 
