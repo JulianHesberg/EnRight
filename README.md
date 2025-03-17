@@ -28,7 +28,7 @@ http://localhost:3030/
 - In the backend/MailCleaner/maildir
 - Add the folders containing the email files within this directory
 - Make sure you do not add individual files, you must add the files with thier directory (The directory will be used for the FileName).
-- If you add individual files the MailCleaner will not process them.
+- If you add individual files the MailCleaner will not process them and move them into the Processed directory.
 
 - Example:
 -                    ./maildir/.allen_p/.sent_emails./{FileName}.
