@@ -1,7 +1,7 @@
 import axios from "axios";
 import {FileToGet} from "../models/FileToGet.ts";
 
-const API_BASE_URL = 'http://indexer:5000/api/File/search';
+const API_BASE_URL = 'http://localhost:5000/api/File/search';
 
 export const search = async (searchQuery: string): Promise<FileToGet[]> => {
     try {
