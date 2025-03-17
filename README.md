@@ -31,8 +31,7 @@ http://localhost:3030/
 - If you add individual files the MailCleaner will not process them.
 
 - Example:
-- ./maildir/.allen_p/.sent_emails./{FileName}.
--                    Optional ^
+-                    ./maildir/.allen_p/.sent_emails./{FileName}.
 - You just need to make sure at least one subdirectoy is added inside maildir.
 
 
