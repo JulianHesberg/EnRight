@@ -3,8 +3,8 @@ A system that processes mail files, cleans them, indexes them, and allows users 
 
 
 To start the application use command:
-docker compose up --build (for the first time)
-docker compose up (to run a secound time after building is done)
+- docker compose up --build (for the first time)
+- docker compose up (to run a secound time after building is done)
 
 All services are dockerised, u can access them on the following endpoints
 
