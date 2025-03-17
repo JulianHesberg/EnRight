@@ -8,9 +8,9 @@ import {search} from "./services/SearchService.ts";
 function App() {
     const [files, setFiles] = useState<FileToGet[]>([]);
 
-    const handleFilesSearch = (query: string) => {
+    const handleFilesSearch = async (query: string) => {
         console.log(query);
-        const result = search(query);
+        const result =  await search(query);
         setFiles(result);
     }
 

@@ -1,40 +1,123 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Indexer.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Hosting;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
+using Prometheus;
+using Serilog;
 
 public class Program
 {
     public static void Main(string[] args)
     {
-        var host = CreateHostBuilder(args).Build();
-        using (var scope = host.Services.CreateScope())
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .CreateLogger();
+
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<IndexerContext>();
-            db.Database.EnsureCreated();
+            var host = Host.CreateDefaultBuilder(args)
+                .UseSerilog()
+                .ConfigureServices((hostContext, services) =>
+                {
+                    // Database connection logic
+                    var sqlHost = Environment.GetEnvironmentVariable("SQL_HOST") ?? "mssql";
+                    var sqlPort = Environment.GetEnvironmentVariable("SQL_PORT") ?? "1433";
+                    var sqlUser = Environment.GetEnvironmentVariable("SQL_USER") ?? "sa";
+                    var sqlPass = Environment.GetEnvironmentVariable("SQL_PASSWORD") ?? "Your_password123";
+                    var connectionString =
+                        $"Server={sqlHost},{sqlPort};Database=EnronIndex;User Id={sqlUser};Password={sqlPass};TrustServerCertificate=True;";
+
+                    services.AddDbContext<IndexerContext>(options =>
+                        options.UseSqlServer(connectionString));
+                    services.AddScoped<FileService>();
+                    services.AddHostedService<IndexWorker>();
+
+                    // Add OpenTelemetry
+                    services.AddOpenTelemetry()
+                        .WithTracing(tracerBuilder =>
+                        {
+                            tracerBuilder
+                                .AddSource("Indexer")
+                                .AddSource("Indexer.FileController")
+                                .SetResourceBuilder(
+                                    ResourceBuilder.CreateDefault()
+                                        .AddService("IndexerService"))
+                                .SetSampler(new AlwaysOnSampler())
+                                .AddHttpClientInstrumentation()
+                                .AddSqlClientInstrumentation()
+                                .AddZipkinExporter(o =>
+                                {
+                                    o.Endpoint = new Uri("http://zipkin:9411/api/v2/spans");
+                                });
+                        })
+                        .WithMetrics(meterBuilder =>
+                        {
+                            meterBuilder
+                                .AddRuntimeInstrumentation()
+                                .SetResourceBuilder(
+                                    ResourceBuilder.CreateDefault()
+                                        .AddService("IndexerService"));
+                        });
+                    services.AddMetricServer(options =>
+                    {
+                        options.Port = 8081;
+                    });
+                })
+                .ConfigureWebHostDefaults(webBuilder =>
+                {
+                    webBuilder.UseStartup<Startup>()
+                              .UseUrls("http://0.0.0.0:5000");
+                })
+                .Build();
+
+            host.Run();
         }
-        host.Run();
-        CreateHostBuilder(args).Build().Run();
+        finally
+        {
+            Log.CloseAndFlush();
+        }
+    }
+}
+
+public class Startup
+{
+    public void ConfigureServices(IServiceCollection services)
+    {
+        services.AddControllers();
+        services.AddCors(options =>
+        {
+            options.AddPolicy("AllowAll", builder =>
+            {
+                builder.AllowAnyOrigin()
+                       .AllowAnyMethod()
+                       .AllowAnyHeader();
+            });
+        });
     }
 
-    public static IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args)
-            .ConfigureServices((hostContext, services) =>
-            {
-                // Read environment variables
-                var sqlHost = Environment.GetEnvironmentVariable("SQL_HOST") ?? "mssql";
-                var sqlPort = Environment.GetEnvironmentVariable("SQL_PORT") ?? "1433";
-                var sqlUser = Environment.GetEnvironmentVariable("SQL_USER") ?? "sa";
-                var sqlPass = Environment.GetEnvironmentVariable("SQL_PASSWORD") ?? "Your_password123";
+    public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+    {
+        if (env.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+        }
 
-                // Build a valid connection string for Docker Compose
-                var connectionString =
-                    $"Server={sqlHost},{sqlPort};Database=EnronIndex;User Id={sqlUser};Password={sqlPass};TrustServerCertificate=True;";
+        app.UseRouting();
+        app.UseCors("AllowAll");
 
-                // Register the DbContext with EF Core
-                services.AddDbContext<IndexerContext>(options =>
-                    options.UseSqlServer(connectionString));
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapControllers();
+            endpoints.MapMetrics(); // Expose Prometheus metrics
+        });
 
-                services.AddHostedService<IndexWorker>();
-
-            });
+        app.UseMetricServer(); // Serve metrics on port 8081
+    }
 }

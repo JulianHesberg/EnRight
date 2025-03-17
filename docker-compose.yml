@@ -5,11 +5,13 @@ services:
     build:
       context: ./frontend
     ports:
-      - "3000:80"
+      - "3000:80"  # Bind frontend to localhost
     volumes:
       - ./frontend:/app
     environment:
       NODE_ENV: production
+    networks:
+      - app-network
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -22,9 +24,11 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 15s
+      interval: 25s
       timeout: 5s
       retries: 10
+    networks:
+      - app-network
 
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -38,9 +42,11 @@ services:
       - mssql_data:/var/opt/mssql
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your_password123 -Q SELECT 1"]
-      interval: 20s
+      interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - app-network
 
   mailcleaner:
     build:
@@ -55,6 +61,9 @@ services:
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
+    networks:
+      - app-network
+    restart: on-failure
 
   indexer:
     build:
@@ -74,9 +83,47 @@ services:
       SQL_PORT: "1433"
       SQL_USER: sa
       SQL_PASSWORD: "Your_password123"
+    ports:
+      - "5000:5000"  # Bind indexer to localhost
+    networks:
+      - app-network
+    restart: on-failure
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - app-network
+
+  # Prometheus for metrics scraping
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - mailcleaner
+    networks:
+      - app-network
+
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3030:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+
 
 networks:
-  default:
+  app-network:
     driver: bridge
 
 volumes:
