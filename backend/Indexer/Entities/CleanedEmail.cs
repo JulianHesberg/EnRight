@@ -1,4 +1,4 @@
-﻿namespace Indexer.Models;
+﻿namespace Indexer.Entities;
 
 public class CleanedEmail
 {

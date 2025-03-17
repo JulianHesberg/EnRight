@@ -1,14 +1,16 @@
+import axios from "axios";
 import {FileToGet} from "../models/FileToGet.ts";
 
-const data: FileToGet[] = [
-    {fileName: "Big Tits", fileId: 1},
-    {fileName: "Small Tits", fileId: 2},
-    {fileName: "Big Dick", fileId: 3},
-    {fileName: "Small Dick", fileId: 4}
-];
+const API_BASE_URL = 'http://indexer:5000/api/File/search';
 
-export const search = (query: string): FileToGet[] => {
-    const result = data.filter((fileToGet: FileToGet) => fileToGet.fileName.includes(query));
-    console.log(result);
-    return result;
+export const search = async (searchQuery: string): Promise<FileToGet[]> => {
+    try {
+        const response = await axios.get(API_BASE_URL, {
+            params: { searchQuery: searchQuery }
+        });
+        return response.data as FileToGet[];
+    } catch (error) {
+        console.error('Error fetching search results:', error);
+        throw error;
+    }
 };
