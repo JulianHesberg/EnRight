@@ -12,10 +12,17 @@ All services are dockerised, u can access them on the following endpoints
 http://localhost:9411/
 
 ** Promethius: **
-http://localhost:9090/
+- http://localhost:9090/
+- userName: admin
+- pass: admin
 
 ** Grifana **
 http://localhost:3030/
+
+**RabbitMQ:**
+- http://localhost:15672/
+- userName: guest
+- pass: guest
 
 ** MailCleaner: **
 In the backend/MailCleaner/maildir
