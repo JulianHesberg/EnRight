@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
+namespace Indexer.Entities;
+
 public class Words
 {
     [Key]

@@ -12,6 +12,7 @@
   "dependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
     "@vitejs/plugin-legacy": "^6.0.2",
+    "axios": "^1.8.2",
     "crypto": "^1.0.1",
     "crypto-browserify": "^3.12.1",
     "react": "^19.0.0",

@@ -1,7 +1,7 @@
 
 using System.Text;
 using System.Text.Json;
-using Indexer.Models;
+using Indexer.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -105,12 +105,21 @@ public class IndexWorker : BackgroundService
         };
         db.Files.Add(fileRecord);
         await db.SaveChangesAsync();
+        
+        Console.WriteLine("*****************************************************");
+        Console.WriteLine(cleanedEmail.Content);
+        Console.WriteLine("*****************************************************");
+
 
         // 2. Split the message content into words
         var tokens = cleanedEmail.Content.Split(
             new[] { ' ', '\r', '\n', '\t', ',', '.', ';', ':', '!', '?', '\"', '\'' },
             StringSplitOptions.RemoveEmptyEntries
+        
         );
+        Console.WriteLine("****************TOKENS***************************");
+        Console.WriteLine(tokens);
+        Console.WriteLine("***************END TOKENS******************************");
 
         // 3. Count occurrences
         var wordCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -127,9 +136,14 @@ public class IndexWorker : BackgroundService
         // 4. Upsert words + insert occurrences
         foreach (var kvp in wordCounts)
         {
+            Console.WriteLine("{0}: {1}", kvp.Key, kvp.Value);
             // Check if the word already exists
-            var existingWord = await db.Words.FirstOrDefaultAsync(w => w.Word == kvp.Key);
-            if (existingWord == null)
+            var existingWord = new Words();
+            try
+            { 
+                existingWord = await db.Words.FirstOrDefaultAsync(w => w.Word == kvp.Key);
+            }
+            catch (Exception)
             {
                 existingWord = new Words { Word = kvp.Key };
                 db.Words.Add(existingWord);

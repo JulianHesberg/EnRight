@@ -1,6 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Indexer.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Hosting;
 
 public class Program
 {
@@ -13,11 +16,15 @@ public class Program
             db.Database.EnsureCreated();
         }
         host.Run();
-        CreateHostBuilder(args).Build().Run();
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                webBuilder.UseStartup<Startup>()
+                          .UseUrls("http://0.0.0.0:5000");
+            })
             .ConfigureServices((hostContext, services) =>
             {
                 // Read environment variables
@@ -34,7 +41,44 @@ public class Program
                 services.AddDbContext<IndexerContext>(options =>
                     options.UseSqlServer(connectionString));
 
-                services.AddHostedService<IndexWorker>();
+                // Register FileService
+                services.AddScoped<FileService>();
 
+                services.AddHostedService<IndexWorker>();
             });
+}
+
+public class Startup
+{
+    public void ConfigureServices(IServiceCollection services)
+    {
+        services.AddControllers();
+        
+        services.AddCors(options =>
+        {
+            options.AddPolicy("AllowAll", builder =>
+            {
+                builder.AllowAnyOrigin()
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+            });
+        });
+    }
+
+    public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+    {
+         if (env.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+        }
+
+        app.UseRouting();
+
+        app.UseCors("AllowAll");
+
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapControllers();
+        });
+    }
 }

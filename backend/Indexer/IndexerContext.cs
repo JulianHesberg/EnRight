@@ -1,3 +1,4 @@
+using Indexer.Entities;
 using Microsoft.EntityFrameworkCore;
 
 public class IndexerContext : DbContext
