@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
-using System.IO.Enumeration;
+
+namespace Indexer.Entities;
 
 public class FileRecord {
     [Key]

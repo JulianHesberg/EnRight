@@ -88,10 +88,36 @@ public class MailCleanerWorker : BackgroundService
 
     private async void ProcessMailDirectory(string mailDir, string processedDir)
     {
-        // 1. Start a parent activity for the entire "ProcessMailDirectory" operation
+
+        bool hasAnyFile = false;
+        // Gather all subdirectories in mailDir
+        var subDirs = Directory.GetDirectories(mailDir);
+        // Check each subdirectory for files
+        foreach (var nameDir in subDirs)
+        {
+            foreach (var typeDir in Directory.GetDirectories(nameDir))
+            {
+                // If we find at least one file, break out
+                if (Directory.GetFiles(typeDir).Length > 0)
+                {
+                    hasAnyFile = true;
+                    break;
+                }
+            }
+            if (hasAnyFile) break;
+        }
+
+        // If no file found, do nothing (no trace)
+        if (!hasAnyFile)
+        {
+            return;
+        }
+
+        // We do have files, so create the parent Activity
         using var processActivity = ActivitySource.StartActivity("ProcessMailDirectory", ActivityKind.Internal);
 
-        foreach (var nameDir in Directory.GetDirectories(mailDir))
+        // Proceed
+        foreach (var nameDir in subDirs)
         {
             string name = Path.GetFileName(nameDir);
             string nameProcessedDir = Path.Combine(processedDir, name);
@@ -125,10 +151,8 @@ public class MailCleanerWorker : BackgroundService
 
                         await PublishMessageAsync(body);
 
-                        // Log each processed file
                         _logger.LogInformation("Processed: {FilePath}", emailFile);
 
-                        // Increment custom metric
                         _logger.LogDebug("Incrementing emails_processed metric for type: {Type}", type);
                         s_emailsProcessed.Add(1, new KeyValuePair<string, object?>("type", type));
                     }
@@ -140,6 +164,7 @@ public class MailCleanerWorker : BackgroundService
             }
         }
     }
+
 
     // TODO (Temp implementation for cleaning) refactor to match our own needs.
     private string CleanEmail(byte[] rawContent)
@@ -174,7 +199,7 @@ public class MailCleanerWorker : BackgroundService
     private async Task PublishMessageAsync(CleanedEmail data)
     {
         if (_channel == null)
-            throw new InvalidOperationException("RabbitMQ channel is not initialized.");
+            _logger.LogError("RabbitMQ channel is not initialized.");
 
         // Capture current activity as parent
         var currentActivity = Activity.Current;

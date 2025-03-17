@@ -1,3 +1,5 @@
+namespace Indexer.Entities;
+
 public class Occurrence
 {
     public int WordId { get; set; }

@@ -1,4 +1,6 @@
 export interface FileToGet {
-    fileName: string;
     fileId: number;
+    fileName: string;
+    content: Uint8Array;
+    occurrenceSum: number;
 }
