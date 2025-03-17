@@ -8,15 +8,15 @@ To start the application use command:
 
 All services are dockerised, u can access them on the following endpoints
 
-** ZipKin: **
+**ZipKin:**
 http://localhost:9411/
 
-** Promethius: **
+**Promethius:**
 - http://localhost:9090/
 - userName: admin
 - pass: admin
 
-** Grifana **
+**Grifana**
 http://localhost:3030/
 
 **RabbitMQ:**
@@ -24,7 +24,7 @@ http://localhost:3030/
 - userName: guest
 - pass: guest
 
-** MailCleaner: **
+**MailCleaner:**
 In the backend/MailCleaner/maildir
 Add the folders containing the email files within this directory
 Make sure you do not add individual files, you must add the files with thier directory (The directory will be used for the FileName).
@@ -40,14 +40,14 @@ Mailcleaner will go through each file, cleaning them and adding them to the clea
 Mailcleaner will LOG success or failier and produce traces and matrics that can be seen in ZipKin and Promethius interfaces.
 RabbitMQ will add the files into the queue.
 
-** Indexer: **
+**Indexer:**
 Indexer should run manualy on it's own when it recives a message from RabbitMQ
 It is listning to the cleaned_emails channel, it will take files there and acknoaldge to rabbitMQ.
 Indexer will thes process the files adding them to the database.
 Indexer will LOG success or failier and produce traces and matrics that can be seen in ZipKin and Promethius interfaces
 Also the Controller will use Logs, Metrics and Traces.
 
-Frontend:
+**Frontend:**
 A basic interface was build to allow users to search for words.
 The front will send a request to the Indexer in which will query for results matching the user input.
 The indexer will return the files that matches the search result, sending them back to the front allowing the user to download them
