@@ -24,7 +24,7 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 15s
+      interval: 25s
       timeout: 5s
       retries: 10
     networks:
@@ -42,7 +42,7 @@ services:
       - mssql_data:/var/opt/mssql
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your_password123 -Q SELECT 1"]
-      interval: 20s
+      interval: 10s
       timeout: 5s
       retries: 10
     networks:
@@ -88,6 +88,39 @@ services:
     networks:
       - app-network
     restart: on-failure
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - app-network
+
+  # Prometheus for metrics scraping
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - mailcleaner
+    networks:
+      - app-network
+
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3030:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+
 
 networks:
   app-network:

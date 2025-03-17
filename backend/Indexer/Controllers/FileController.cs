@@ -1,31 +1,52 @@
-﻿using Indexer.Models;
+﻿using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Indexer.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
-namespace Indexer.Controllers;
-
-[ApiController]
-[Route("api/[controller]")]
-public class FileController : ControllerBase
+namespace Indexer.Controllers
 {
-    private readonly FileService _fileService;
-
-    public FileController(FileService service)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class FileController : ControllerBase
     {
-        _fileService = service;
-    }
+        private readonly FileService _fileService;
+        private readonly ILogger<FileController> _logger;
 
-    [HttpGet]
-    [Route("search")]
-    public async Task<List<FileSearchResult>> SearchFilesAsync(string searchQuery)
-    {
-        try
+        private static readonly ActivitySource ActivitySource = new("Indexer.FileController");
+
+        private static readonly Meter s_meter = new("IndexerMeter");
+        private static readonly Counter<long> s_searchRequests =
+            s_meter.CreateCounter<long>("search_requests", "Number of search requests received by FileController");
+
+        public FileController(FileService service, ILogger<FileController> logger)
         {
-            return await _fileService.GetTop20Files(searchQuery);
+            _fileService = service;
+            _logger = logger;
         }
-        catch (Exception ex)
+
+        [HttpGet("search")]
+        public async Task <IActionResult> SearchFilesAsync(string searchQuery)
         {
-            throw ex;
+            using var activity = ActivitySource.StartActivity("SearchFiles", ActivityKind.Server);
+
+            s_searchRequests.Add(1, new KeyValuePair<string, object?>("query", searchQuery ?? ""));
+
+            _logger.LogInformation("Handling search request for {Query}", searchQuery);
+
+            try
+            {
+                var results = await _fileService.GetTop20Files(searchQuery);
+
+                _logger.LogInformation("Returning {Count} results for {Query}", results.Count, searchQuery);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching for {Query}", searchQuery);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }
